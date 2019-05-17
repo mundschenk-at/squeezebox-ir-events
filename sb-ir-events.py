@@ -237,7 +237,8 @@ def subscribe_to_squeezebox_events():
                 match = power_regex.search(data)
                 if match is not None:
                     power_status = match.group(1)
-                    if power_status == b'1':
+                    # Newer versions return bytes here, so b'1' is necessary.
+                    if power_status == '1':
                         send_lirc_commands(CONFIG['REMOTE'], CONFIG['EVENTS']['POWER_ON'])
                     else:
                         send_lirc_commands(CONFIG['REMOTE'], CONFIG['EVENTS']['POWER_OFF'])
