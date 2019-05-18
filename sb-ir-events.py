@@ -176,12 +176,10 @@ def get_player_id(sock, player_name):
     player_id = None
 
     # Retrieve player count.
-    sock.send('player count ?\n')
-    player_count = int(ure.match('player count ([0-9]+)', sock.readline()).group(1))
+    player_count = int(sb_parse_result('player count ([0-9]+)', sb_command(sock, 'player count ?')))
 
     # Retrieve the complete players information.
-    sock.send('players 0 %d\n' % player_count)
-    players = ure.compile(r' playerindex%3A[0-9]+ ').split(sock.readline())
+    players = ure.compile(r' playerindex%3A[0-9]+ ').split(sb_command(sock, 'players 0 %d' % player_count))
 
     # The first item will be the command we just sent.
     players.pop(0)
@@ -217,6 +215,24 @@ def send_lirc_commands(remote, commands):
         # Send the LIRC command.
         send_single_lirc_command(remote, cmd['CODE'])
 
+
+def sb_parse_result(regex, string, group = 1):
+    """
+    Parses an LMS command result by using a regex.
+    """
+    return ure.match(regex, string).group(group)
+
+
+def sb_command(sock, command, *args):
+    """
+    Sends a command to the LMS server and returns the (immediate) result. The final
+    newline will outomatically be added and all optional arguments will be URL encoded.
+    """
+    lms_cmd = '{}\n'.format(command).format([urlencode.quote(argument) for argument in args])
+    sock.send(lms_cmd)
+    return sock.readline().decode('utf-8')
+
+
 def subscribe_to_squeezebox_events():
     """
     Opens a socket to the server and watch for relevant events.
@@ -225,9 +241,7 @@ def subscribe_to_squeezebox_events():
         server = usocket.getaddrinfo(CONFIG['SERVER']['HOST'], CONFIG['SERVER']['PORT'])[0][-1]
         s = usocket.socket(usocket.AF_INET, usocket.SOCK_STREAM)
         s.connect(server)
-        s.send("subscribe power\n")
-        # Ignore the reply line
-        s.readline()
+        sb_command(s, 'subscribe power,mixer')
     except:
         print("Unable to connect; retrying in %d seconds" % CONFIG['SERVER']['RESTART_DELAY'])
         return
