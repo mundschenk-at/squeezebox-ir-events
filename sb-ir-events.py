@@ -174,6 +174,8 @@ class SBIREvents:
         Initializes the IR events handler from the command line arguments.
         """
         self.socket = None
+        self.power_regex = None
+        self.volume_regex = None
 
         # Some primitive configuration file parsing.
         try:
@@ -279,46 +281,78 @@ class SBIREvents:
                   server.restart_delay)
             return
 
+    def handle_power_event(self, match):
+        """
+        Handles power on and off events.
+        """
+        power_status = match.group(1)
+        if power_status == '1':
+            self.send_lirc_commands(self.remote, self.events['POWER_ON'])
+        else:
+            self.send_lirc_commands(self.remote, self.events['POWER_OFF'])
+
+    def handle_volume_event(self, match):
+        """
+        Handles volume change events.
+        """
+        print("Not really handling ", match)
+
+    def wait_for_events(self, poll):
+        """
+        Waits for events sent by the LMS server.
+        """
+        for (sock, flags, *other) in poll.ipoll(2):
+            if (flags & uselect.POLLHUP) or (flags & uselect.POLLERR):
+                # The socket got lost, let's try again soon.
+                raise ValueError('Lost socket connection; restarting in {} seconds'.format(
+                    self.server.restart_delay))
+
+            data = sock.readline().decode('utf-8')
+            if not data:
+                # The socket got lost, let's try again soon.
+                raise ValueError('No data (socket probably lost connection); restarting in {} seconds.'.format(
+                    self.server.restart_delay))
+
+            print("RECEIVED: %s" % data)
+            match = self.power_regex.search(data)
+            if match is not None:
+                self.handle_power_event(match)
+                continue
+
+            match = self.volume_regex.search(data)
+            if match is not None:
+                self.handle_volume_event(match)
+                continue
+
+    def prepare_events_regexes(self):
+        """
+        Prepare regular expressions used for events parsing. The server connection
+        must be already open.
+        """
+        # We need the player ID to identify relevant events.
+        player_id = self.get_player_id(self.player_name)
+
+        self.power_regex = ure.compile('{} power ([10])'.format(player_id))
+        self.volume_regex = ure.compile('{} mixer volume ([0-9]+)'.format(player_id))
+
     def listen(self):
         """
         Listen for events affecting the player.
         """
         self.connect(self.server)
+        self.prepare_events_regexes()
         self.sb_command('subscribe power,mixer')
-
-        # Construct specific regular expression.
-        power_regex = ure.compile(
-            '%s power ([10])' % self.get_player_id(self.player_name))
 
         # Loop until the socket expires
         p = uselect.poll()
         p.register(self.socket, uselect.POLLIN)
 
         while True:
-            for (sock, flags, *other) in p.ipoll(2):
-                if (flags & uselect.POLLHUP) or (flags & uselect.POLLERR):
-                    # The socket got lost, let's try again soon.
-                    print("Lost socket connection; restarting in %d seconds" %
-                          self.server.restart_delay)
-                    return
-
-                data = sock.readline().decode('utf-8')
-                print("RECEIVED: %s" % data)
-                if not data:
-                    # The socket got lost, let's try again soon.
-                    print("Lost socket connection; restarting in %d seconds" %
-                          self.server.restart_delay)
-                    return
-                else:
-                    match = power_regex.search(data)
-                    if match is not None:
-                        power_status = match.group(1)
-                        if power_status == '1':
-                            self.send_lirc_commands(
-                                self.remote, self.events['POWER_ON'])
-                        else:
-                            self.send_lirc_commands(
-                                self.remote, self.events['POWER_OFF'])
+            try:
+                self.wait_for_events(p)
+            except ValueError as e:
+                print(e)
+                return
 
     def wait_until_restart(self):
         """
