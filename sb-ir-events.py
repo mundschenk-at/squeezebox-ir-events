@@ -229,7 +229,7 @@ class SBIREvents:
                     ure.match(r'playerid%3A([^ ]+) ', player).group(1))
                 break
 
-        return urlencode.quote(player_id)
+        return player_id
 
     def send_single_lirc_command(self, remote, cmd):
         """
@@ -324,13 +324,12 @@ class SBIREvents:
                 self.handle_volume_event(match)
                 continue
 
-    def prepare_events_regexes(self):
+    def prepare_events_regexes(self, player_id):
         """
         Prepare regular expressions used for events parsing. The server connection
         must be already open.
         """
-        # We need the player ID to identify relevant events.
-        player_id = self.get_player_id(self.player_name)
+        player_id = urlencode.quote(player_id)
 
         self.power_regex = ure.compile('{} power ([10])'.format(player_id))
         self.volume_regex = ure.compile('{} mixer volume ([0-9]+)'.format(player_id))
@@ -340,9 +339,11 @@ class SBIREvents:
         Listen for events affecting the player.
         """
         self.connect(self.server)
-        self.prepare_events_regexes()
         self.sb_command('subscribe power,mixer')
 
+        # We need the player ID to identify relevant events.
+        player_id = self.get_player_id(self.player_name)
+        self.prepare_events_regexes(player_id)
         # Loop until the socket expires
         p = uselect.poll()
         p.register(self.socket, uselect.POLLIN)
