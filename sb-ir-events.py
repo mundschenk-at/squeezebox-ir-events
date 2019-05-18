@@ -64,14 +64,15 @@ class urlencode:
         # Build cache for hex to char mapping on-the-fly only for codes
         # that are actually used
         if urlencode._unquote_cache is None:
-           urlencode._unquote_cache = {}
+            urlencode._unquote_cache = {}
 
         for item in bits[1:]:
             try:
                 code = item[:2]
                 char = urlencode._unquote_cache.get(code)
                 if char is None:
-                    char = urlencode._unquote_cache[code] = bytes([int(code, 16)])
+                    char = urlencode._unquote_cache[code] = bytes(
+                        [int(code, 16)])
                 append(char)
                 append(item[2:])
             except KeyError:
@@ -156,7 +157,8 @@ class urlencode:
         try:
             quoter = urlencode._safe_quoters[safe]
         except KeyError:
-            urlencode._safe_quoters[safe] = quoter = urlencode.Quoter(safe).__getitem__
+            urlencode._safe_quoters[safe] = quoter = urlencode.Quoter(
+                safe).__getitem__
         return ''.join([quoter(char) for char in string])
 
 
