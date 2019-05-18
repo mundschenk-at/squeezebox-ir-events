@@ -233,8 +233,7 @@ def subscribe_to_squeezebox_events():
         return
 
     # Construct specific regular expression.
-    power_pattern = r'%s power ([10])' % get_player_id(s, CONFIG['PLAYER_NAME'])
-    power_regex = ure.compile(power_pattern)
+    power_regex = ure.compile('%s power ([10])' % get_player_id(s, CONFIG['PLAYER_NAME']))
 
     # Loop until the socket expires
     p = uselect.poll()
