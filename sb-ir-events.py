@@ -267,7 +267,7 @@ class SBIREvents:
         newline will outomatically be added and all optional arguments will be URL encoded.
         """
         lms_cmd = '{}\n'.format(command).format(
-            [urlencode.quote(argument) for argument in args])
+            *[urlencode.quote(argument) for argument in args])
         self.socket.write(lms_cmd)
         return self.socket.readline().decode('utf-8')
 
