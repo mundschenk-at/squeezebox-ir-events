@@ -28,6 +28,8 @@ import uselect
 import usocket
 import utime
 
+from ucollections import namedtuple
+
 
 class urlencode:
     """
@@ -173,17 +175,29 @@ class SBIREvents:
         """
         self.socket = None
 
-        # Some primitive self.configuration file parsing.
+        # Some primitive configuration file parsing.
         try:
-            self.config = ujson.load(uio.open(config_file))
+            config = ujson.load(uio.open(config_file))
         except:
             print('Error loading configuration file "{}".'.format(config_file))
             raise
 
         # Set player name.
-        self.player_name = self.config['PLAYER_NAME']
+        self.player_name = config['PLAYER_NAME']
         if player_name is not None:
             self.player_name = player_name
+
+        # Server settings.
+        Server = namedtuple('Server', ('host', 'port', 'restart_delay'))
+        self.server = Server(config['SERVER']['HOST'], config['SERVER']
+                             ['PORT'], config['SERVER']['RESTART_DELAY'])
+
+        # LIRC settings.
+        self.irsend = config['IRSEND']
+        self.remote = config['REMOTE']
+
+        # Event commands.
+        self.events = config['EVENTS']
 
     def get_player_id(self, player_name):
         """
@@ -220,7 +234,7 @@ class SBIREvents:
         Sends an IR command using the shell.
         """
         irsend_cmd = "%s SEND_ONCE %s %s" % (
-            self.config['IRSEND'], remote, cmd)
+            self.irsend, remote, cmd)
         print("Running '%s' shell command" % irsend_cmd)
         uos.system(irsend_cmd)
 
@@ -249,23 +263,28 @@ class SBIREvents:
         """
         lms_cmd = '{}\n'.format(command).format(
             [urlencode.quote(argument) for argument in args])
-        self.socket.send(lms_cmd)
+        self.socket.write(lms_cmd)
         return self.socket.readline().decode('utf-8')
 
-    def subscribe_to_squeezebox_events(self):
+    def connect(self, server):
         """
         Opens a socket to the server and watch for relevant events.
         """
         try:
-            server = usocket.getaddrinfo(
-                self.config['SERVER']['HOST'], self.config['SERVER']['PORT'])[0][-1]
+            addr = usocket.getaddrinfo(server.host, server.port)[0][-1]
             self.socket = usocket.socket(usocket.AF_INET, usocket.SOCK_STREAM)
-            self.socket.connect(server)
-            self.sb_command('subscribe power,mixer')
+            self.socket.connect(addr)
         except:
             print("Unable to connect; retrying in %d seconds" %
-                  self.config['SERVER']['RESTART_DELAY'])
+                  server.restart_delay)
             return
+
+    def listen(self):
+        """
+        Listen for events affecting the player.
+        """
+        self.connect(self.server)
+        self.sb_command('subscribe power,mixer')
 
         # Construct specific regular expression.
         power_regex = ure.compile(
@@ -282,7 +301,7 @@ class SBIREvents:
                 if (flags & uselect.POLLHUP) or (flags & uselect.POLLERR):
                     # The socket got lost, let's try again soon.
                     print("Lost socket connection; restarting in %d seconds" %
-                          self.config['SERVER']['RESTART_DELAY'])
+                          self.server.restart_delay)
                     return
 
                 data = sock.readline()
@@ -290,7 +309,7 @@ class SBIREvents:
                 if not data:
                     # The socket got lost, let's try again soon.
                     print("Lost socket connection; restarting in %d seconds" %
-                          self.config['SERVER']['RESTART_DELAY'])
+                          self.server.restart_delay)
                     return
                 else:
                     match = power_regex.search(data)
@@ -299,16 +318,16 @@ class SBIREvents:
                         # Newer versions return bytes here, so b'1' is necessary.
                         if power_status == '1':
                             self.send_lirc_commands(
-                                self.config['REMOTE'], self.config['EVENTS']['POWER_ON'])
+                                self.remote, self.events['POWER_ON'])
                         else:
                             self.send_lirc_commands(
-                                self.config['REMOTE'], self.config['EVENTS']['POWER_OFF'])
+                                self.remote, self.events['POWER_OFF'])
 
     def wait_until_restart(self):
         """
         Waits the configured time before trying to resume the connection.
         """
-        utime.sleep(self.config['SERVER']['RESTART_DELAY'])
+        utime.sleep(self.server.restart_delay)
 
 
 if __name__ == "__main__":
@@ -316,5 +335,5 @@ if __name__ == "__main__":
 
     # Loop forever. If the socket expires, restart it.
     while True:
-        handler.subscribe_to_squeezebox_events()
+        handler.listen()
         handler.wait_until_restart()
