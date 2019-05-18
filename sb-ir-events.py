@@ -295,9 +295,7 @@ class SBIREvents:
         p.register(self.socket, uselect.POLLIN)
 
         while True:
-            for event in p.ipoll(2):
-                (sock, flags, *other) = event
-
+            for (sock, flags, *other) in p.ipoll(2):
                 if (flags & uselect.POLLHUP) or (flags & uselect.POLLERR):
                     # The socket got lost, let's try again soon.
                     print("Lost socket connection; restarting in %d seconds" %
