@@ -256,7 +256,10 @@ class SBIREvents:
         """
         Parses an LMS command result by using a regex.
         """
-        return ure.match(regex, string).group(group)
+        if isinstance(regex, str):
+            return ure.match(regex, string).group(group)
+        else:
+            return regex.match(string).group(group)
 
     def sb_command(self, command, *args):
         """
