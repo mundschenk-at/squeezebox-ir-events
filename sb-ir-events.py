@@ -168,14 +168,33 @@ class urlencode:
         return ''.join([quoter(char) for char in string])
 
 
-def get_player_id():
+def get_player_id(sock, player_name):
     """
     Retrieves the player's ID as defined by LMS. Most likely this is the player's MAC address.
-
-    Should be changed to retrieve the player ID from the server.
     """
-    mac = uio.open('/sys/class/net/wlan0/address').readline()
-    return urlencode.quote(mac)
+    player_count = 0
+    player_id = None
+
+    # Retrieve player count.
+    sock.send('player count ?\n')
+    player_count = int(ure.match('player count ([0-9]+)', sock.readline()).group(1))
+
+    # Retrieve the complete players information.
+    sock.send('players 0 %d\n' % player_count)
+    players = ure.compile(r' playerindex%3A[0-9]+ ').split(sock.readline())
+
+    # The first item will be the command we just sent.
+    players.pop(0)
+
+    # Prepare lookup expression.
+    player_name_regex = ure.compile('name%s%s ' % (r'%3A', urlencode.quote(player_name)))
+
+    for player in players:
+        if player_name_regex.search(player):
+            player_id = urlencode.unquote(ure.match(r'playerid%3A([^ ]+) ', player).group(1))
+            break
+
+    return urlencode.quote(player_id)
 
 
 def send_single_lirc_command(remote, cmd):
@@ -202,17 +221,20 @@ def subscribe_to_squeezebox_events():
     """
     Opens a socket to the server and watch for relevant events.
     """
-    power_pattern = r'%s power ([10])' % get_player_id()
-    power_regex = ure.compile(power_pattern)
-
     try:
         server = usocket.getaddrinfo(CONFIG['SERVER']['HOST'], CONFIG['SERVER']['PORT'])[0][-1]
         s = usocket.socket(usocket.AF_INET, usocket.SOCK_STREAM)
         s.connect(server)
         s.send("subscribe power\n")
+        # Ignore the reply line
+        s.readline()
     except:
         print("Unable to connect; retrying in %d seconds" % CONFIG['SERVER']['RESTART_DELAY'])
         return
+
+    # Construct specific regular expression.
+    power_pattern = r'%s power ([10])' % get_player_id(s, CONFIG['PLAYER_NAME'])
+    power_regex = ure.compile(power_pattern)
 
     # Loop until the socket expires
     p = uselect.poll()
