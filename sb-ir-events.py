@@ -19,22 +19,14 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #
 
+import sys
 import uio
 import ujson
-import usocket
-import uselect
-import sys
-import ure
-import utime
 import uos
-
-# Some primitive configuration file parsing.
-try:
-    CONFIG_FILE = sys.argv[1]
-    CONFIG = ujson.load(uio.open(CONFIG_FILE))
-except:
-    print('Error loading configuration file %s.' % CONFIG_FILE)
-    raise
+import ure
+import uselect
+import usocket
+import utime
 
 
 class urlencode:
@@ -168,118 +160,159 @@ class urlencode:
         return ''.join([quoter(char) for char in string])
 
 
-def get_player_id(sock, player_name):
+class SBIREvents:
     """
-    Retrieves the player's ID as defined by LMS. Most likely this is the player's MAC address.
+    A class encapsulating the IR events handler.
     """
-    player_count = 0
-    player_id = None
 
-    # Retrieve player count.
-    player_count = int(sb_parse_result('player count ([0-9]+)', sb_command(sock, 'player count ?')))
+    def __init__(self, config_file, player_name=None):
+        """
+        Initializes the IR events handler from the command line arguments.
+        """
+        self.socket = None
 
-    # Retrieve the complete players information.
-    players = ure.compile(r' playerindex%3A[0-9]+ ').split(sb_command(sock, 'players 0 %d' % player_count))
+        # Some primitive self.configuration file parsing.
+        try:
+            self.config = ujson.load(uio.open(config_file))
+        except:
+            print('Error loading configuration file "{}".'.format(config_file))
+            raise
 
-    # The first item will be the command we just sent.
-    players.pop(0)
+        # Set player name.
+        self.player_name = self.config['PLAYER_NAME']
+        if player_name is not None:
+            self.player_name = player_name
 
-    # Prepare lookup expression.
-    player_name_regex = ure.compile('name%s%s ' % (r'%3A', urlencode.quote(player_name)))
+    def get_player_id(self, player_name):
+        """
+        Retrieves the player's ID as defined by LMS. Most likely this is the player's MAC address.
+        """
+        player_count = 0
+        player_id = None
 
-    for player in players:
-        if player_name_regex.search(player):
-            player_id = urlencode.unquote(ure.match(r'playerid%3A([^ ]+) ', player).group(1))
-            break
+        # Retrieve player count.
+        player_count = int(self.sb_parse_result(
+            'player count ([0-9]+)', self.sb_command('player count ?')))
 
-    return urlencode.quote(player_id)
+        # Retrieve the complete players information.
+        players = ure.compile(
+            r' playerindex%3A[0-9]+ ').split(self.sb_command('players 0 %d' % player_count))
 
+        # The first item will be the command we just sent.
+        players.pop(0)
 
-def send_single_lirc_command(remote, cmd):
-    """
-    Sends an IR command using the shell.
-    """
-    irsend_cmd = "%s SEND_ONCE %s %s" % (CONFIG['IRSEND'], remote, cmd)
-    uos.system(irsend_cmd)
+        # Prepare lookup expression.
+        player_name_regex = ure.compile(
+            'name%s%s ' % (r'%3A', urlencode.quote(player_name)))
 
+        for player in players:
+            if player_name_regex.search(player):
+                player_id = urlencode.unquote(
+                    ure.match(r'playerid%3A([^ ]+) ', player).group(1))
+                break
 
-def send_lirc_commands(remote, commands):
-    """
-    Sends one or more LIRC commands, with optional pauses in between.
-    """
-    for cmd in commands:
-        # Wait for specified number of milliseconds.
-        if cmd['DELAY'] > 0:
-            utime.sleep_ms(cmd['DELAY'])
+        return urlencode.quote(player_id)
 
-        # Send the LIRC command.
-        send_single_lirc_command(remote, cmd['CODE'])
+    def send_single_lirc_command(self, remote, cmd):
+        """
+        Sends an IR command using the shell.
+        """
+        irsend_cmd = "%s SEND_ONCE %s %s" % (
+            self.config['IRSEND'], remote, cmd)
+        print("Running '%s' shell command" % irsend_cmd)
+        uos.system(irsend_cmd)
 
+    def send_lirc_commands(self, remote, commands):
+        """
+        Sends one or more LIRC commands, with optional pauses in between.
+        """
+        for cmd in commands:
+            # Wait for specified number of milliseconds.
+            if cmd['DELAY'] > 0:
+                utime.sleep_ms(cmd['DELAY'])
 
-def sb_parse_result(regex, string, group = 1):
-    """
-    Parses an LMS command result by using a regex.
-    """
-    return ure.match(regex, string).group(group)
+            # Send the LIRC command.
+            self.send_single_lirc_command(remote, cmd['CODE'])
 
+    def sb_parse_result(self, regex, string, group=1):
+        """
+        Parses an LMS command result by using a regex.
+        """
+        return ure.match(regex, string).group(group)
 
-def sb_command(sock, command, *args):
-    """
-    Sends a command to the LMS server and returns the (immediate) result. The final
-    newline will outomatically be added and all optional arguments will be URL encoded.
-    """
-    lms_cmd = '{}\n'.format(command).format([urlencode.quote(argument) for argument in args])
-    sock.send(lms_cmd)
-    return sock.readline().decode('utf-8')
+    def sb_command(self, command, *args):
+        """
+        Sends a command to the LMS server and returns the (immediate) result. The final
+        newline will outomatically be added and all optional arguments will be URL encoded.
+        """
+        lms_cmd = '{}\n'.format(command).format(
+            [urlencode.quote(argument) for argument in args])
+        self.socket.send(lms_cmd)
+        return self.socket.readline().decode('utf-8')
 
+    def subscribe_to_squeezebox_events(self):
+        """
+        Opens a socket to the server and watch for relevant events.
+        """
+        try:
+            server = usocket.getaddrinfo(
+                self.config['SERVER']['HOST'], self.config['SERVER']['PORT'])[0][-1]
+            self.socket = usocket.socket(usocket.AF_INET, usocket.SOCK_STREAM)
+            self.socket.connect(server)
+            self.sb_command('subscribe power,mixer')
+        except:
+            print("Unable to connect; retrying in %d seconds" %
+                  self.config['SERVER']['RESTART_DELAY'])
+            return
 
-def subscribe_to_squeezebox_events():
-    """
-    Opens a socket to the server and watch for relevant events.
-    """
-    try:
-        server = usocket.getaddrinfo(CONFIG['SERVER']['HOST'], CONFIG['SERVER']['PORT'])[0][-1]
-        s = usocket.socket(usocket.AF_INET, usocket.SOCK_STREAM)
-        s.connect(server)
-        sb_command(s, 'subscribe power,mixer')
-    except:
-        print("Unable to connect; retrying in %d seconds" % CONFIG['SERVER']['RESTART_DELAY'])
-        return
+        # Construct specific regular expression.
+        power_regex = ure.compile(
+            '%s power ([10])' % self.get_player_id(self.player_name))
 
-    # Construct specific regular expression.
-    power_regex = ure.compile('%s power ([10])' % get_player_id(s, CONFIG['PLAYER_NAME']))
+        # Loop until the socket expires
+        p = uselect.poll()
+        p.register(self.socket, uselect.POLLIN)
 
-    # Loop until the socket expires
-    p = uselect.poll()
-    p.register(s, uselect.POLLIN)
+        while True:
+            for event in p.ipoll(2):
+                (sock, flags, *other) = event
 
-    while True:
-        for event in p.ipoll(2):
-            sock  = event[0]
-            flags = event[1]
+                if (flags & uselect.POLLHUP) or (flags & uselect.POLLERR):
+                    # The socket got lost, let's try again soon.
+                    print("Lost socket connection; restarting in %d seconds" %
+                          self.config['SERVER']['RESTART_DELAY'])
+                    return
 
-            if (flags & uselect.POLLHUP) or (flags & uselect.POLLERR):
-                # The socket got lost, let's try again soon.
-                print("Lost socket connection; restarting in %d seconds" % CONFIG['SERVER']['RESTART_DELAY'])
-                return
+                data = sock.readline()
+                print("RECEIVED: %s" % data)
+                if not data:
+                    # The socket got lost, let's try again soon.
+                    print("Lost socket connection; restarting in %d seconds" %
+                          self.config['SERVER']['RESTART_DELAY'])
+                    return
+                else:
+                    match = power_regex.search(data)
+                    if match is not None:
+                        power_status = match.group(1)
+                        # Newer versions return bytes here, so b'1' is necessary.
+                        if power_status == '1':
+                            self.send_lirc_commands(
+                                self.config['REMOTE'], self.config['EVENTS']['POWER_ON'])
+                        else:
+                            self.send_lirc_commands(
+                                self.config['REMOTE'], self.config['EVENTS']['POWER_OFF'])
 
-            data = sock.readline()
-            if not data:
-                # The socket got lost, let's try again soon.
-                print("Lost socket connection; restarting in %d seconds" % CONFIG['SERVER']['RESTART_DELAY'])
-                return
-            else:
-                match = power_regex.search(data)
-                if match is not None:
-                    power_status = match.group(1)
-                    # Newer versions return bytes here, so b'1' is necessary.
-                    if power_status == '1':
-                        send_lirc_commands(CONFIG['REMOTE'], CONFIG['EVENTS']['POWER_ON'])
-                    else:
-                        send_lirc_commands(CONFIG['REMOTE'], CONFIG['EVENTS']['POWER_OFF'])
+    def wait_until_restart(self):
+        """
+        Waits the configured time before trying to resume the connection.
+        """
+        utime.sleep(self.config['SERVER']['RESTART_DELAY'])
+
 
 if __name__ == "__main__":
+    handler = SBIREvents(*sys.argv[1:3])
+
     # Loop forever. If the socket expires, restart it.
     while True:
-        subscribe_to_squeezebox_events()
-        utime.sleep(CONFIG['SERVER']['RESTART_DELAY'])
+        handler.subscribe_to_squeezebox_events()
+        handler.wait_until_restart()
