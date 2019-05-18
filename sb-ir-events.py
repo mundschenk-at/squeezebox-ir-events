@@ -304,7 +304,7 @@ class SBIREvents:
                           self.server.restart_delay)
                     return
 
-                data = sock.readline()
+                data = sock.readline().decode('utf-8')
                 print("RECEIVED: %s" % data)
                 if not data:
                     # The socket got lost, let's try again soon.
@@ -315,7 +315,6 @@ class SBIREvents:
                     match = power_regex.search(data)
                     if match is not None:
                         power_status = match.group(1)
-                        # Newer versions return bytes here, so b'1' is necessary.
                         if power_status == '1':
                             self.send_lirc_commands(
                                 self.remote, self.events['POWER_ON'])
