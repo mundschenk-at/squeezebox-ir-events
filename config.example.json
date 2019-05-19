@@ -1,0 +1,40 @@
+{
+	"IRSEND": "/usr/local/bin/irsend",
+	"REMOTE": "<name of LIRC remote>",
+	"EVENTS": {
+		"POWER_ON": [
+			{
+				"DELAY": 0,
+				"CODE": "<LIRC button code 1>"
+			},
+			{
+				"DELAY": 1000,
+				"CODE": "<LIRC button code 2>"
+			}
+		],
+		"POWER_OFF": [
+			{
+				"DELAY": 0,
+				"CODE": "<LIRC button code>"
+			}
+		],
+		"VOLUME_RAISE": [
+			{
+				"DELAY": 0,
+				"CODE": "<LIRC button code>"
+			}
+		],
+		"VOLUME_LOWER": [
+			{
+				"DELAY": 0,
+				"CODE": "<LIRC button code>"
+			}
+		]
+	},
+	"SERVER": {
+		"HOST": "<LMS host name>",
+		"PORT": 9090,
+		"RESTART_DELAY": 30
+	},
+	"PLAYER_NAME": "<LMS player name>"
+}
