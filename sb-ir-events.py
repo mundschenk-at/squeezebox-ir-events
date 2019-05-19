@@ -177,6 +177,11 @@ class SBIREvents:
         self.power_regex = None
         self.volume_regex = None
 
+        # Fake config setting. Should be detected by querying the server.
+        self.volume_lock = True
+        self.changed_volume = None
+        self.changed_steps = None
+
         # Some primitive configuration file parsing.
         try:
             config = ujson.load(uio.open(config_file))
@@ -298,7 +303,33 @@ class SBIREvents:
         """
         Handles volume change events.
         """
-        print("Not really handling ", match)
+        volume = int(match.group(1))
+        steps = (volume - self.previous_volume) / 5
+
+        if self.volume_lock:
+            if self.changed_volume is None and self.changed_steps is None and steps is not 0:
+                self.changed_volume = volume
+                self.changed_steps = steps
+                volume = self.previous_volume
+                steps = 0
+            else:
+                # Ignore the second volume event
+                volume = self.changed_volume
+                steps = self.changed_steps
+                self.changed_volume = None
+                self.changed_steps = None
+        else:
+            self.previous_volume = volume
+
+        if steps is not 0:
+            lower = steps < 0
+            for i in range(abs(steps)):
+                if lower:
+                    self.send_lirc_commands(
+                        self.remote, self.events['VOLUME_LOWER'])
+                else:
+                    self.send_lirc_commands(
+                        self.remote, self.events['VOLUME_RAISE'])
 
     def wait_for_events(self, poll):
         """
@@ -335,7 +366,8 @@ class SBIREvents:
         player_id = urlencode.quote(player_id)
 
         self.power_regex = ure.compile('{} power ([10])'.format(player_id))
-        self.volume_regex = ure.compile('{} mixer volume ([0-9]+)'.format(player_id))
+        self.volume_regex = ure.compile(
+            '{} mixer volume ([0-9]+)'.format(player_id))
 
     def listen(self):
         """
@@ -347,6 +379,11 @@ class SBIREvents:
         # We need the player ID to identify relevant events.
         player_id = self.get_player_id(self.player_name)
         self.prepare_events_regexes(player_id)
+
+        # Retrieve current volume for handling relative changes.
+        self.previous_volume = int(self.sb_parse_result(
+            self.volume_regex, self.sb_command('{} mixer volume ?', player_id)))
+
         # Loop until the socket expires
         p = uselect.poll()
         p.register(self.socket, uselect.POLLIN)
