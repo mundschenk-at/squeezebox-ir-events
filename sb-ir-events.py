@@ -48,8 +48,8 @@ class urlencode:
         """unquote('abc%20def') -> 'abc def'."""
         urlencode._unquote_cache
 
-        # Note: strings are encoded as UTF-8. This is only an issue if it contains
-        # unescaped non-ASCII characters, which URIs should not.
+        # Note: strings are encoded as UTF-8. This is only an issue if it
+        # contains unescaped non-ASCII characters, which URIs should not.
         if not string:
             return ''
 
@@ -86,8 +86,8 @@ class urlencode:
     class Quoter:
         """
         A mapping from bytes (in range(0,256)) to strings.
-        String values are percent-encoded byte values, unless the key < 128, and
-        in the "safe" set (either the specified safe set, or default set).
+        String values are percent-encoded byte values, unless the key < 128,
+        and in the "safe" set (either the specified safe set, or default set).
         """
 
         # Keeps a cache internally for efficiency.
@@ -150,7 +150,8 @@ class urlencode:
         if not string:
             return ''
         if isinstance(safe, str):
-            # Normalize 'safe' by converting to bytes and removing non-ASCII chars
+            # Normalize 'safe' by converting to bytes and removing
+            # non-ASCII characters.
             safe = safe.encode('ascii', 'ignore')
         else:
             safe = bytes([c for c in safe if c < 128])
@@ -171,7 +172,7 @@ class SBIREvents:
 
     def __init__(self, config_file, player_name=None):
         """
-        Initializes the IR events handler from the command line arguments.
+        Initialize the IR events handler from the command line arguments.
         """
         self.socket = None
         self.power_regex = None
@@ -181,11 +182,12 @@ class SBIREvents:
         self.volume_lock = True
         self.changed_volume = None
         self.changed_steps = None
+        self.previous_volume = 100
 
         # Some primitive configuration file parsing.
         try:
             config = ujson.load(uio.open(config_file))
-        except:
+        except OSError:
             print('Error loading configuration file "{}".'.format(config_file))
             raise
 
@@ -208,7 +210,8 @@ class SBIREvents:
 
     def get_player_id(self, player_name):
         """
-        Retrieves the player's ID as defined by LMS. Most likely this is the player's MAC address.
+        Retrieve the player's ID as defined by LMS. Most likely this is the
+        player's MAC address.
         """
         player_count = 0
         player_id = None
@@ -219,7 +222,9 @@ class SBIREvents:
 
         # Retrieve the complete players information.
         players = ure.compile(
-            r' playerindex%3A[0-9]+ ').split(self.sb_command('players 0 %d' % player_count))
+            r' playerindex%3A[0-9]+ ').split(
+                self.sb_command('players 0 %d' % player_count)
+        )
 
         # The first item will be the command we just sent.
         players.pop(0)
@@ -238,7 +243,7 @@ class SBIREvents:
 
     def send_single_lirc_command(self, remote, cmd):
         """
-        Sends an IR command using the shell.
+        Send an IR command using the shell.
         """
         irsend_cmd = "%s SEND_ONCE %s %s" % (
             self.irsend, remote, cmd)
@@ -247,7 +252,7 @@ class SBIREvents:
 
     def send_lirc_commands(self, remote, commands):
         """
-        Sends one or more LIRC commands, with optional pauses in between.
+        Send one or more LIRC commands, with optional pauses in between.
         """
         for cmd in commands:
             # Wait for specified number of milliseconds.
@@ -268,8 +273,9 @@ class SBIREvents:
 
     def sb_command(self, command, *args):
         """
-        Sends a command to the LMS server and returns the (immediate) result. The final
-        newline will outomatically be added and all optional arguments will be URL encoded.
+        Send a command to the LMS server and returns the (immediate) result.
+        The final newline will outomatically be added and all optional
+        arguments will be URL encoded.
         """
         lms_cmd = '{}\n'.format(command).format(
             *[urlencode.quote(argument) for argument in args])
@@ -278,20 +284,20 @@ class SBIREvents:
 
     def connect(self, server):
         """
-        Opens a socket to the server and watch for relevant events.
+        Open a socket to the server and watch for relevant events.
         """
         try:
             addr = usocket.getaddrinfo(server.host, server.port)[0][-1]
             self.socket = usocket.socket(usocket.AF_INET, usocket.SOCK_STREAM)
             self.socket.connect(addr)
-        except:
+        except OSError:
             print("Unable to connect; retrying in %d seconds" %
                   server.restart_delay)
             return
 
     def handle_power_event(self, match):
         """
-        Handles power on and off events.
+        Handle power on and off events.
         """
         power_status = match.group(1)
         if power_status == '1':
@@ -301,13 +307,16 @@ class SBIREvents:
 
     def handle_volume_event(self, match):
         """
-        Handles volume change events.
+        Handle volume change events.
         """
         volume = int(match.group(1))
         steps = (volume - self.previous_volume) / 5
 
         if self.volume_lock:
-            if self.changed_volume is None and self.changed_steps is None and steps is not 0:
+            if self.changed_volume is None and \
+               self.changed_steps is None and \
+               steps != 0:
+                # Store initial volume change, but don't call script yet.
                 self.changed_volume = volume
                 self.changed_steps = steps
                 volume = self.previous_volume
@@ -321,7 +330,7 @@ class SBIREvents:
         else:
             self.previous_volume = volume
 
-        if steps is not 0:
+        if steps != 0:
             lower = steps < 0
             for i in range(abs(steps)):
                 if lower:
@@ -333,21 +342,25 @@ class SBIREvents:
 
     def wait_for_events(self, poll):
         """
-        Waits for events sent by the LMS server.
+        Wait for events sent by the LMS server.
         """
-        for (sock, flags, *other) in poll.ipoll(2):
+        for (sock, flags, *_) in poll.ipoll(2):
             if (flags & uselect.POLLHUP) or (flags & uselect.POLLERR):
                 # The socket got lost, let's try again soon.
-                raise ValueError('Lost socket connection; restarting in {} seconds'.format(
-                    self.server.restart_delay))
+                raise ValueError(
+                        'Lost socket connection; restarting in {} seconds.'
+                        .format(self.server.restart_delay)
+                    )
 
             data = sock.readline().decode('utf-8')
             if not data:
                 # The socket got lost, let's try again soon.
-                raise ValueError('No data (socket probably lost connection); restarting in {} seconds.'.format(
-                    self.server.restart_delay))
+                raise ValueError(
+                        'No data (socket probably lost connection); '
+                        'restarting in {} seconds.'
+                        .format(self.server.restart_delay)
+                    )
 
-            print("RECEIVED: %s" % data)
             match = self.power_regex.search(data)
             if match is not None:
                 self.handle_power_event(match)
@@ -360,8 +373,8 @@ class SBIREvents:
 
     def prepare_events_regexes(self, player_id):
         """
-        Prepare regular expressions used for events parsing. The server connection
-        must be already open.
+        Prepare regular expressions used for events parsing. The server
+        connection must be already open.
         """
         player_id = urlencode.quote(player_id)
 
@@ -382,7 +395,8 @@ class SBIREvents:
 
         # Retrieve current volume for handling relative changes.
         self.previous_volume = int(self.sb_parse_result(
-            self.volume_regex, self.sb_command('{} mixer volume ?', player_id)))
+            self.volume_regex, self.sb_command('{} mixer volume ?', player_id)
+        ))
 
         # Loop until the socket expires
         p = uselect.poll()
@@ -397,7 +411,7 @@ class SBIREvents:
 
     def wait_until_restart(self):
         """
-        Waits the configured time before trying to resume the connection.
+        Wait the configured time before trying to resume the connection.
         """
         utime.sleep(self.server.restart_delay)
 
