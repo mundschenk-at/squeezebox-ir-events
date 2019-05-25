@@ -174,14 +174,13 @@ class SBIREvents:
         """
         Initialize the IR events handler from the command line arguments.
         """
-        self.socket = None
+        self.sock_queries = None
+        self.sock_events = None
+        self.player_id = None
         self.power_regex = None
         self.volume_regex = None
 
-        # Volume handling. Should be detected by querying the server.
-        self.volume_lock = True   # Fake config setting, should be queried
-        self.changed_volume = None
-        self.changed_steps = None
+        # Volume handling. Will be updated by querying the server.
         self.previous_volume = 100
 
         # Some primitive configuration file parsing.
@@ -221,14 +220,17 @@ class SBIREvents:
         player_id = None
 
         # Retrieve player count.
-        player_count = int(self.sb_parse_result(
-            'player count ([0-9]+)', self.sb_command('player count ?')))
+        player_count = int(self.sb_query('player count'))
 
         # Retrieve the complete players information.
         players = ure.compile(
             r' playerindex%3A[0-9]+ ').split(
-                self.sb_command('players 0 %d' % player_count)
-        )
+                self.sb_command(
+                    self.sock_queries,
+                    'players 0 {}',
+                    player_count
+                )
+            )
 
         # The first item will be the command we just sent.
         players.pop(0)
@@ -244,6 +246,26 @@ class SBIREvents:
                 break
 
         return player_id
+
+    def get_volume_lock_mode(self):
+        """
+        Retrieve the player's volume lock mode.
+        """
+        return self.sb_query(
+            '{} playerpref {}',
+            self.player_id,
+            'plugin.VolumeLock:volumeLockMode'
+        )
+
+    def get_volume_lock_volume(self):
+        """
+        Retrieve the player's maximum/fixed volume.
+        """
+        return int(self.sb_query(
+            '{} playerpref {}',
+            self.player_id,
+            'plugin.VolumeLock:volumeLockVolume'
+        ))
 
     def run_single_command(self, script, param=None):
         """
@@ -281,34 +303,72 @@ class SBIREvents:
         """
         Parses an LMS command result by using a regex.
         """
-        if isinstance(regex, str):
-            return ure.match(regex, string).group(group)
-        else:
-            return regex.match(string).group(group)
+        try:
+            if isinstance(regex, str):
+                result = ure.match(regex, string).group(group).strip()
+            else:
+                result = regex.match(string).group(group).strip()
+        except AttributeError as err:
+            print('Invalid result: ', err)
+            print('String {}, regex {}'.format(string, regex))
+            result = None
 
-    def sb_command(self, command, *args):
+        return result
+
+    def sb_command(self, socket, command, *args):
         """
         Send a command to the LMS server and returns the (immediate) result.
         The final newline will outomatically be added and all optional
         arguments will be URL encoded.
         """
-        lms_cmd = '{}\n'.format(command).format(
-            *[urlencode.quote(argument) for argument in args])
-        self.socket.write(lms_cmd)
-        return self.socket.readline().decode('utf-8')
+        socket.write(self.sb_prepare_string(command, *args) + '\n')
+        return socket.readline().decode('utf-8')
+
+    def sb_prepare_string(self, string, *args):
+        """
+        Prepare a string for being sent to the LMS server.
+        """
+        # String arguments need to be URL encoded.
+        args = list(args)
+        for num, argument in enumerate(args):
+            if isinstance(argument, str):
+                args[num] = urlencode.quote(argument)
+
+        return string.format(*args)
+
+    def sb_query(self, query, *args):
+        """
+        Sends a query command and parses the result. The final '?' and newline
+        will automatically be added to the query.
+        """
+        prepared = self.sb_prepare_string(query, *args)
+
+        return self.sb_parse_result(
+            # Match everything after the returned command string.
+            prepared + ' (.*)',
+            # Add query indicator to command string.
+            self.sb_command(self.sock_queries, prepared + ' ?')
+        )
 
     def connect(self, server):
         """
         Open a socket to the server and watch for relevant events.
         """
-        try:
-            addr = usocket.getaddrinfo(server.host, server.port)[0][-1]
-            self.socket = usocket.socket(usocket.AF_INET, usocket.SOCK_STREAM)
-            self.socket.connect(addr)
-        except OSError:
-            print("Unable to connect; retrying in %d seconds" %
-                  server.restart_delay)
-            return
+        addr = usocket.getaddrinfo(server.host, server.port)[0][-1]
+
+        # We need a socket for queries.
+        self.sock_queries = usocket.socket(
+            usocket.AF_INET,
+            usocket.SOCK_STREAM
+        )
+        self.sock_queries.connect(addr)
+
+        # And a separate socket for event subscriptions.
+        self.sock_events = usocket.socket(
+            usocket.AF_INET,
+            usocket.SOCK_STREAM
+        )
+        self.sock_events.connect(addr)
 
     def handle_power_event(self, match):
         """
@@ -327,21 +387,14 @@ class SBIREvents:
         volume = int(match.group(1))
         steps = round((volume - self.previous_volume) / 5)
 
-        if self.volume_lock:
-            if self.changed_volume is None and \
-               self.changed_steps is None and \
-               steps != 0:
-                # Store initial volume change, but don't call script yet.
-                self.changed_volume = volume
-                self.changed_steps = steps
-                volume = self.previous_volume
-                steps = 0
-            else:
-                # Ignore the second volume event
-                volume = self.changed_volume
-                steps = self.changed_steps
-                self.changed_volume = None
-                self.changed_steps = None
+        # Retrieve current volume for handling relative changes.
+        volume_lock_mode = self.get_volume_lock_mode()
+        volume_lock_volume = self.get_volume_lock_volume()
+
+        if (volume_lock_mode == 'PLUGIN_VOLUME_FIX'
+            or (volume_lock_mode == 'PLUGIN_VOLUME_SET_MAX'
+                and volume > volume_lock_volume)):
+            self.previous_volume = volume_lock_volume
         else:
             self.previous_volume = volume
 
@@ -382,43 +435,61 @@ class SBIREvents:
                 self.handle_volume_event(match)
                 continue
 
-    def prepare_events_regexes(self, player_id):
+    def prepare_events_regexes(self):
         """
         Prepare regular expressions used for events parsing. The server
         connection must be already open.
         """
-        player_id = urlencode.quote(player_id)
+        player_id = urlencode.quote(self.player_id)
 
-        self.power_regex = ure.compile('{} power ([10])'.format(player_id))
+        self.power_regex = ure.compile(
+            '{} power ([10])'.format(player_id)
+        )
         self.volume_regex = ure.compile(
-            '{} mixer volume ([0-9]+)'.format(player_id))
+            '{} mixer volume ([0-9]+)'.format(player_id)
+        )
 
     def listen(self):
         """
         Listen for events affecting the player.
         """
-        self.connect(self.server)
-        self.sb_command('subscribe power,mixer')
+        # Connect to server.
+        try:
+            self.connect(self.server)
 
-        # We need the player ID to identify relevant events.
-        player_id = self.get_player_id(self.player_name)
-        self.prepare_events_regexes(player_id)
+            # We need the player ID to identify relevant events.
+            self.player_id = self.get_player_id(self.player_name)
+            self.prepare_events_regexes()
 
-        # Retrieve current volume for handling relative changes.
-        self.previous_volume = int(self.sb_parse_result(
-            self.volume_regex, self.sb_command('{} mixer volume ?', player_id)
-        ))
+            self.previous_volume = int(
+                self.sb_query('{} mixer volume', self.player_id)
+            )
+        except OSError as err:
+            print(
+                'Unable to connect ({}); retrying in {} seconds'
+                .format(err, self.server.restart_delay)
+            )
+            return
+
+        # Subscribe to events.
+        try:
+            self.sb_command(self.sock_events, 'subscribe power,mixer')
+        except OSError as err:
+            print(
+                'Error during event registration ({}); retrying in {} seconds'
+                .format(err, self.server.restart_delay)
+            )
+            return
 
         # Loop until the socket expires
-        p = uselect.poll()
-        p.register(self.socket, uselect.POLLIN)
-
-        while True:
-            try:
+        try:
+            p = uselect.poll()
+            p.register(self.sock_events, uselect.POLLIN)
+            while True:
                 self.wait_for_events(p)
-            except ValueError as e:
-                print(e)
-                return
+        except (ValueError, OSError) as e:
+            print(e)
+            return
 
     def wait_until_restart(self):
         """
