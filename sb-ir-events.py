@@ -303,9 +303,9 @@ class SBIREvents:
         """
         try:
             if isinstance(regex, str):
-                result = ure.match(regex, string).group(group)
+                result = ure.match(regex, string).group(group).strip()
             else:
-                result = regex.match(string).group(group)
+                result = regex.match(string).group(group).strip()
         except AttributeError as err:
             print('Invalid result: ', err)
             result = None
