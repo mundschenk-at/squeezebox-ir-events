@@ -179,10 +179,7 @@ class SBIREvents:
         self.power_regex = None
         self.volume_regex = None
 
-        # Volume handling. Should be detected by querying the server.
-        self.volume_lock = True   # Fake config setting, should be queried
-        self.changed_volume = None
-        self.changed_steps = None
+        # Volume handling. Will be updated by querying the server.
         self.previous_volume = 100
 
         # Some primitive configuration file parsing.
@@ -377,21 +374,14 @@ class SBIREvents:
         volume = int(match.group(1))
         steps = round((volume - self.previous_volume) / 5)
 
-        if self.volume_lock:
-            if self.changed_volume is None and \
-               self.changed_steps is None and \
-               steps != 0:
-                # Store initial volume change, but don't call script yet.
-                self.changed_volume = volume
-                self.changed_steps = steps
-                volume = self.previous_volume
-                steps = 0
-            else:
-                # Ignore the second volume event
-                volume = self.changed_volume
-                steps = self.changed_steps
-                self.changed_volume = None
-                self.changed_steps = None
+        # Retrieve current volume for handling relative changes.
+        volume_lock_mode = self.get_volume_lock_mode()
+        volume_lock_volume = self.get_volume_lock_volume()
+
+        if (volume_lock_mode == 'PLUGIN_VOLUME_FIX'
+            or (volume_lock_mode == 'PLUGIN_VOLUME_SET_MAX'
+                and volume > volume_lock_volume)):
+            self.previous_volume = volume_lock_volume
         else:
             self.previous_volume = volume
 
