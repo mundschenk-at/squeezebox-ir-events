@@ -17,43 +17,44 @@ The configuration file should be in JSON format:
 
 ```
 {
-	"IRSEND": "<path to irsend binary>",
-	"REMOTE": "<name of LIRC remote>",
-	"EVENTS": {
-		"POWER_ON": [
+	"player_name": "<LMS player name, can be overridden from command line>",
+
+	"server": {
+		"host": "<LMS host name>",
+		"port": <port used for the LMS CLI interface>,
+		"restart_delay": <delay in seconds before restart if connection is lost>
+	},
+
+	"default_script": "<default script, can be set to an empty string>",
+
+	"events": {
+		"power:on": [
 			{
-				"DELAY": <delay in milliseconds>,
-				"CODE": "<LIRC button code 1>"
+				"script": "<custom script, optional>",
+				"param": "<script parameter, optional>",
+				"include_value": <boolean flag to indicate if server response should be added as parameter>
 			},
 			{
-				"DELAY": <delay in milliseconds>,
-				"CODE": "<LIRC button code 2>"
+				"delay": <delay in milliseconds before script execution, default 0>,
+				"script": "<custom script, optional>",
+				"param": "<script parameter, optional>",
 			}
 		],
-		"POWER_OFF": [
+		"power:off": [
 			{
-				"DELAY": <delay in milliseconds>,
-				"CODE": "<LIRC button code>"
+				"param": "<script parameter>",
 			}
 		],
-		"VOLUME_RAISE": [
+		"volume:raise": [
 			{
-				"DELAY": <delay in milliseconds>,
-				"CODE": "<LIRC button code>"
+				"param": "<script parameter>",
 			}
 		],
-		"VOLUME_LOWER": [
+		"volume:lower": [
 			{
-				"DELAY": <delay in milliseconds>,
-				"CODE": "<LIRC button code>"
+				"param": "<script parameter>",
 			}
 		]
 	},
-	"SERVER": {
-		"HOST": "<LMS host name>",
-		"PORT": <port used for the LMS CLI interface>,
-		"RESTART_DELAY": <delay in seconds before restart if connection is lost>
-	},
-	"PLAYER_NAME": "<LMS player name, can be overridden from command line>"
 }
 ```

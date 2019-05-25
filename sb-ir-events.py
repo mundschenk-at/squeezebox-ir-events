@@ -178,8 +178,8 @@ class SBIREvents:
         self.power_regex = None
         self.volume_regex = None
 
-        # Fake config setting. Should be detected by querying the server.
-        self.volume_lock = True
+        # Volume handling. Should be detected by querying the server.
+        self.volume_lock = True   # Fake config setting, should be queried
         self.changed_volume = None
         self.changed_steps = None
         self.previous_volume = 100
@@ -192,21 +192,25 @@ class SBIREvents:
             raise
 
         # Set player name.
-        self.player_name = config['PLAYER_NAME']
+        self.player_name = config.get('player_name')
         if player_name is not None:
             self.player_name = player_name
+        if self.player_name is None:
+            raise ValueError('No player name.')
 
         # Server settings.
         Server = namedtuple('Server', ('host', 'port', 'restart_delay'))
-        self.server = Server(config['SERVER']['HOST'], config['SERVER']
-                             ['PORT'], config['SERVER']['RESTART_DELAY'])
+        self.server = Server(
+            config['server']['host'],
+            config['server']['port'],
+            config['server']['restart_delay']
+        )
 
-        # LIRC settings.
-        self.irsend = config['IRSEND']
-        self.remote = config['REMOTE']
+        # Default settings.
+        self.default_script = config['default_script']
 
         # Event commands.
-        self.events = config['EVENTS']
+        self.events = config['events']
 
     def get_player_id(self, player_name):
         """
@@ -241,26 +245,37 @@ class SBIREvents:
 
         return player_id
 
-    def send_single_lirc_command(self, remote, cmd):
+    def run_single_command(self, script, param=None):
         """
-        Send an IR command using the shell.
+        Run a single command using the shell.
         """
-        irsend_cmd = "%s SEND_ONCE %s %s" % (
-            self.irsend, remote, cmd)
-        print("Running '%s' shell command" % irsend_cmd)
-        uos.system(irsend_cmd)
+        cmd = script
+        if param is not None and param != '':
+            cmd += ' ' + param
 
-    def send_lirc_commands(self, remote, commands):
+        print("Running '%s' shell command" % cmd)
+        uos.system(cmd)
+
+    def run_commands(self, commands, value=None):
         """
-        Send one or more LIRC commands, with optional pauses in between.
+        Run commands for an event, with optional pauses in between.
         """
         for cmd in commands:
             # Wait for specified number of milliseconds.
-            if cmd['DELAY'] > 0:
-                utime.sleep_ms(cmd['DELAY'])
+            delay = cmd.get('delay', 0)
+            if delay > 0:
+                utime.sleep_ms(delay)
 
             # Send the LIRC command.
-            self.send_single_lirc_command(remote, cmd['CODE'])
+            script = cmd.get('script', self.default_script)
+            if script is None:
+                continue
+
+            param = cmd.get('param')
+            if value is not None and cmd.get('include_value', False):
+                param += str(value)
+
+            self.run_single_command(script, param)
 
     def sb_parse_result(self, regex, string, group=1):
         """
@@ -301,16 +316,16 @@ class SBIREvents:
         """
         power_status = match.group(1)
         if power_status == '1':
-            self.send_lirc_commands(self.remote, self.events['POWER_ON'])
+            self.run_commands(self.events['power:on'])
         else:
-            self.send_lirc_commands(self.remote, self.events['POWER_OFF'])
+            self.run_commands(self.events['power:off'])
 
     def handle_volume_event(self, match):
         """
         Handle volume change events.
         """
         volume = int(match.group(1))
-        steps = (volume - self.previous_volume) / 5
+        steps = round((volume - self.previous_volume) / 5)
 
         if self.volume_lock:
             if self.changed_volume is None and \
@@ -330,15 +345,11 @@ class SBIREvents:
         else:
             self.previous_volume = volume
 
-        if steps != 0:
-            lower = steps < 0
-            for i in range(abs(steps)):
-                if lower:
-                    self.send_lirc_commands(
-                        self.remote, self.events['VOLUME_LOWER'])
-                else:
-                    self.send_lirc_commands(
-                        self.remote, self.events['VOLUME_RAISE'])
+        if steps and steps != 0:
+            if steps < 0:
+                self.run_commands(self.events['volume:lower'], steps)
+            else:
+                self.run_commands(self.events['volume:raise'], steps)
 
     def wait_for_events(self, poll):
         """

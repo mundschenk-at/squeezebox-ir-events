@@ -1,40 +1,61 @@
 {
-	"IRSEND": "/usr/local/bin/irsend",
-	"REMOTE": "<name of LIRC remote>",
-	"EVENTS": {
-		"POWER_ON": [
+	"comment": "This example configuration is prepared for the Abacus Prepino pre-amp",
+	"comment": "and the use of \"ir-ctl\" from v4l-utils (instead of LIRC).",
+	"comment": "",
+	"comment": "All comment lines can be removed safely.",
+
+	"player_name": "<LMS player name>",
+
+	"server": {
+		"comment": "The host can be server name or an IP address.",
+		"comment": "The port should be the CLI port of the LMS server (9090 by default).",
+		"comment": "The restart delay is the number of seconds before a reconnect attempt",
+		"comment": "after the connection is broken.",
+
+		"host": "<LMS host name>",
+		"port": 9090,
+		"restart_delay": 30
+	},
+
+	"default_script": "/usr/bin/ir-ctl -S",
+	"comment": "The default script can be set to an empty string, preventing a default.",
+
+	"events": {
+		"power:on": [
 			{
-				"DELAY": 0,
-				"CODE": "<LIRC button code 1>"
+				"param": "rc5:0x1028",
+				"comment": "KEY_POWER_ON",
+
+				"comment": "Optional keys:",
+				"comment": "   - delay: delay before executing the command (in milliseconds)",
+				"comment": "   - script: use a different script name for this command",
+				"comment": "   - param: a parameter for the (default) script",
+				"comment": "   - include_value: add data parsed from the server response to the script parameter",
 			},
 			{
-				"DELAY": 1000,
-				"CODE": "<LIRC button code 2>"
+				"delay": 1000,
+				"comment": "Delay in milliseconds",
+				"param": "rc5:0x1001",
+				"comment": "KEY_CHANNEL_1"
 			}
 		],
-		"POWER_OFF": [
+		"power:off": [
 			{
-				"DELAY": 0,
-				"CODE": "<LIRC button code>"
+				"param": "rc5:0x1029",
+				"comment": "KEY_POWER_OFF"
 			}
 		],
-		"VOLUME_RAISE": [
+		"volume:raise": [
 			{
-				"DELAY": 0,
-				"CODE": "<LIRC button code>"
+				"param": "rc5:0x1010",
+				"comment": "KEY_VOLUME_RAISE"
 			}
 		],
-		"VOLUME_LOWER": [
+		"volume:lower": [
 			{
-				"DELAY": 0,
-				"CODE": "<LIRC button code>"
+				"param": "rc5:0x1011",
+				"comment": "KEY_VOLUME_LOWER"
 			}
 		]
 	},
-	"SERVER": {
-		"HOST": "<LMS host name>",
-		"PORT": 9090,
-		"RESTART_DELAY": 30
-	},
-	"PLAYER_NAME": "<LMS player name>"
 }
