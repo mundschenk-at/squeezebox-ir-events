@@ -245,6 +245,26 @@ class SBIREvents:
 
         return player_id
 
+    def get_volume_lock_mode(self):
+        """
+        Retrieve the player's volume lock mode.
+        """
+        return self.sb_query(
+            '{} playerpref {}',
+            self.player_id,
+            'plugin.VolumeLock:volumeLockMode'
+        )
+
+    def get_volume_lock_volume(self):
+        """
+        Retrieve the player's maximum/fixed volume.
+        """
+        return int(self.sb_query(
+            '{} playerpref {}',
+            self.player_id,
+            'plugin.VolumeLock:volumeLockVolume'
+        ))
+
     def run_single_command(self, script, param=None):
         """
         Run a single command using the shell.
