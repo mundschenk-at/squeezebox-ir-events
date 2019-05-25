@@ -192,7 +192,7 @@ class SBIREvents:
             raise
 
         # Set player name.
-        self.player_name = config.get('PLAYER_NAME')
+        self.player_name = config.get('player_name')
         if player_name is not None:
             self.player_name = player_name
         if self.player_name is None:
@@ -201,16 +201,16 @@ class SBIREvents:
         # Server settings.
         Server = namedtuple('Server', ('host', 'port', 'restart_delay'))
         self.server = Server(
-            config['SERVER']['HOST'],
-            config['SERVER']['PORT'],
-            config['SERVER']['RESTART_DELAY']
+            config['server']['host'],
+            config['server']['port'],
+            config['server']['restart_delay']
         )
 
         # Default settings.
-        self.default_script = config['DEFAULT_SCRIPT']
+        self.default_script = config['default_script']
 
         # Event commands.
-        self.events = config['EVENTS']
+        self.events = config['events']
 
     def get_player_id(self, player_name):
         """
@@ -316,9 +316,9 @@ class SBIREvents:
         """
         power_status = match.group(1)
         if power_status == '1':
-            self.run_commands(self.events['POWER_ON'])
+            self.run_commands(self.events['power:on'])
         else:
-            self.run_commands(self.events['POWER_OFF'])
+            self.run_commands(self.events['power:off'])
 
     def handle_volume_event(self, match):
         """
@@ -347,9 +347,9 @@ class SBIREvents:
 
         if steps and steps != 0:
             if steps < 0:
-                self.run_commands(self.events['VOLUME_LOWER'], steps)
+                self.run_commands(self.events['volume:lower'], steps)
             else:
-                self.run_commands(self.events['VOLUME_RAISE'], steps)
+                self.run_commands(self.events['volume:raise'], steps)
 
     def wait_for_events(self, poll):
         """
