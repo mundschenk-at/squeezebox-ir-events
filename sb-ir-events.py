@@ -174,7 +174,8 @@ class SBIREvents:
         """
         Initialize the IR events handler from the command line arguments.
         """
-        self.socket = None
+        self.sock_queries = None
+        self.sock_events = None
         self.player_id = None
         self.power_regex = None
         self.volume_regex = None
@@ -224,8 +225,12 @@ class SBIREvents:
         # Retrieve the complete players information.
         players = ure.compile(
             r' playerindex%3A[0-9]+ ').split(
-                self.sb_command('players 0 {}', player_count)
-        )
+                self.sb_command(
+                    self.sock_queries,
+                    'players 0 {}',
+                    player_count
+                )
+            )
 
         # The first item will be the command we just sent.
         players.pop(0)
@@ -305,18 +310,19 @@ class SBIREvents:
                 result = regex.match(string).group(group).strip()
         except AttributeError as err:
             print('Invalid result: ', err)
+            print('String {}, regex {}'.format(string, regex))
             result = None
 
         return result
 
-    def sb_command(self, command, *args):
+    def sb_command(self, socket, command, *args):
         """
         Send a command to the LMS server and returns the (immediate) result.
         The final newline will outomatically be added and all optional
         arguments will be URL encoded.
         """
-        self.socket.write(self.sb_prepare_string(command, *args) + '\n')
-        return self.socket.readline().decode('utf-8')
+        socket.write(self.sb_prepare_string(command, *args) + '\n')
+        return socket.readline().decode('utf-8')
 
     def sb_prepare_string(self, string, *args):
         """
@@ -341,21 +347,28 @@ class SBIREvents:
             # Match everything after the returned command string.
             prepared + ' (.*)',
             # Add query indicator to command string.
-            self.sb_command(prepared + ' ?')
+            self.sb_command(self.sock_queries, prepared + ' ?')
         )
 
     def connect(self, server):
         """
         Open a socket to the server and watch for relevant events.
         """
-        try:
-            addr = usocket.getaddrinfo(server.host, server.port)[0][-1]
-            self.socket = usocket.socket(usocket.AF_INET, usocket.SOCK_STREAM)
-            self.socket.connect(addr)
-        except OSError:
-            print("Unable to connect; retrying in %d seconds" %
-                  server.restart_delay)
-            return
+        addr = usocket.getaddrinfo(server.host, server.port)[0][-1]
+
+        # We need a socket for queries.
+        self.sock_queries = usocket.socket(
+            usocket.AF_INET,
+            usocket.SOCK_STREAM
+        )
+        self.sock_queries.connect(addr)
+
+        # And a separate socket for event subscriptions.
+        self.sock_events = usocket.socket(
+            usocket.AF_INET,
+            usocket.SOCK_STREAM
+        )
+        self.sock_events.connect(addr)
 
     def handle_power_event(self, match):
         """
@@ -440,29 +453,43 @@ class SBIREvents:
         """
         Listen for events affecting the player.
         """
-        self.connect(self.server)
+        # Connect to server.
+        try:
+            self.connect(self.server)
 
-        # We need the player ID to identify relevant events.
-        self.player_id = self.get_player_id(self.player_name)
-        self.prepare_events_regexes()
+            # We need the player ID to identify relevant events.
+            self.player_id = self.get_player_id(self.player_name)
+            self.prepare_events_regexes()
 
-        self.previous_volume = int(
-            self.sb_query('{} mixer volume', self.player_id)
-        )
+            self.previous_volume = int(
+                self.sb_query('{} mixer volume', self.player_id)
+            )
+        except OSError as err:
+            print(
+                'Unable to connect ({}); retrying in {} seconds'
+                .format(err, self.server.restart_delay)
+            )
+            return
 
         # Subscribe to events.
-        self.sb_command('subscribe power,mixer')
+        try:
+            self.sb_command(self.sock_events, 'subscribe power,mixer')
+        except OSError as err:
+            print(
+                'Error during event registration ({}); retrying in {} seconds'
+                .format(err, self.server.restart_delay)
+            )
+            return
 
         # Loop until the socket expires
-        p = uselect.poll()
-        p.register(self.socket, uselect.POLLIN)
-
-        while True:
-            try:
+        try:
+            p = uselect.poll()
+            p.register(self.sock_events, uselect.POLLIN)
+            while True:
                 self.wait_for_events(p)
-            except ValueError as e:
-                print(e)
-                return
+        except (ValueError, OSError) as e:
+            print(e)
+            return
 
     def wait_until_restart(self):
         """
