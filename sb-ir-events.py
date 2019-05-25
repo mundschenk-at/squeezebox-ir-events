@@ -292,10 +292,34 @@ class SBIREvents:
         The final newline will outomatically be added and all optional
         arguments will be URL encoded.
         """
-        lms_cmd = '{}\n'.format(command).format(
-            *[urlencode.quote(argument) for argument in args])
-        self.socket.write(lms_cmd)
+        self.socket.write(self.sb_prepare_string(command, *args) + '\n')
         return self.socket.readline().decode('utf-8')
+
+    def sb_prepare_string(self, string, *args):
+        """
+        Prepare a string for being sent to the LMS server.
+        """
+        # String arguments need to be URL encoded.
+        args = list(args)
+        for num, argument in enumerate(args):
+            if isinstance(argument, str):
+                args[num] = urlencode.quote(argument)
+
+        return string.format(*args)
+
+    def sb_query(self, query, *args):
+        """
+        Sends a query command and parses the result. The final '?' and newline
+        will automatically be added to the query.
+        """
+        prepared = self.sb_prepare_string(query, *args)
+
+        return self.sb_parse_result(
+            # Match everything after the returned command string.
+            prepared + ' (.*)',
+            # Add query indicator to command string.
+            self.sb_command(prepared + ' ?')
+        )
 
     def connect(self, server):
         """
