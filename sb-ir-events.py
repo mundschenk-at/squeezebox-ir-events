@@ -421,7 +421,6 @@ class SBIREvents:
         Listen for events affecting the player.
         """
         self.connect(self.server)
-        self.sb_command('subscribe power,mixer')
 
         # We need the player ID to identify relevant events.
         player_id = self.get_player_id(self.player_name)
@@ -430,6 +429,8 @@ class SBIREvents:
         # Retrieve current volume for handling relative changes.
         self.previous_volume = int(self.sb_query('{} mixer volume', player_id))
 
+        # Subscribe to events.
+        self.sb_command('subscribe power,mixer')
 
         # Loop until the socket expires
         p = uselect.poll()
