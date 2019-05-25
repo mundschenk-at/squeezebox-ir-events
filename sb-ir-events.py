@@ -221,13 +221,12 @@ class SBIREvents:
         player_id = None
 
         # Retrieve player count.
-        player_count = int(self.sb_parse_result(
-            'player count ([0-9]+)', self.sb_command('player count ?')))
+        player_count = int(self.sb_query('player count'))
 
         # Retrieve the complete players information.
         players = ure.compile(
             r' playerindex%3A[0-9]+ ').split(
-                self.sb_command('players 0 %d' % player_count)
+                self.sb_command('players 0 {}', player_count)
         )
 
         # The first item will be the command we just sent.
@@ -429,9 +428,8 @@ class SBIREvents:
         self.prepare_events_regexes(player_id)
 
         # Retrieve current volume for handling relative changes.
-        self.previous_volume = int(self.sb_parse_result(
-            self.volume_regex, self.sb_command('{} mixer volume ?', player_id)
-        ))
+        self.previous_volume = int(self.sb_query('{} mixer volume', player_id))
+
 
         # Loop until the socket expires
         p = uselect.poll()
