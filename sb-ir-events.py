@@ -175,6 +175,7 @@ class SBIREvents:
         Initialize the IR events handler from the command line arguments.
         """
         self.socket = None
+        self.player_id = None
         self.power_regex = None
         self.volume_regex = None
 
@@ -411,16 +412,19 @@ class SBIREvents:
                 self.handle_volume_event(match)
                 continue
 
-    def prepare_events_regexes(self, player_id):
+    def prepare_events_regexes(self):
         """
         Prepare regular expressions used for events parsing. The server
         connection must be already open.
         """
-        player_id = urlencode.quote(player_id)
+        player_id = urlencode.quote(self.player_id)
 
-        self.power_regex = ure.compile('{} power ([10])'.format(player_id))
+        self.power_regex = ure.compile(
+            '{} power ([10])'.format(player_id)
+        )
         self.volume_regex = ure.compile(
-            '{} mixer volume ([0-9]+)'.format(player_id))
+            '{} mixer volume ([0-9]+)'.format(player_id)
+        )
 
     def listen(self):
         """
@@ -429,11 +433,12 @@ class SBIREvents:
         self.connect(self.server)
 
         # We need the player ID to identify relevant events.
-        player_id = self.get_player_id(self.player_name)
-        self.prepare_events_regexes(player_id)
+        self.player_id = self.get_player_id(self.player_name)
+        self.prepare_events_regexes()
 
-        # Retrieve current volume for handling relative changes.
-        self.previous_volume = int(self.sb_query('{} mixer volume', player_id))
+        self.previous_volume = int(
+            self.sb_query('{} mixer volume', self.player_id)
+        )
 
         # Subscribe to events.
         self.sb_command('subscribe power,mixer')
